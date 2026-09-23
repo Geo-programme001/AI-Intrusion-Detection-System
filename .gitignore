@@ -216,3 +216,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables / secrets
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project datasets
+datasets/raw/*
+datasets/processed/*
+
+# Trained machine learning models
+models/*.pkl
+models/*.joblib
