@@ -227,8 +227,8 @@ venv/
 .ipynb_checkpoints/
 
 # Project datasets
-datasets/raw/*
-datasets/processed/*
+#datasets/raw/*
+#datasets/processed/*
 
 # Trained machine learning models
 models/*.pkl
