@@ -2,9 +2,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from pathlib import Path
 import joblib
 from datetime import datetime
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Locate the project root relative to dashboard/app.py.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -64,42 +65,12 @@ st.set_page_config(
 )
 
 # --------------------------------------------------
-# DEMO DATA — NOT REAL DETECTIONS
-# --------------------------------------------------
-demo_alerts = pd.DataFrame([
-    {
-        "Time": "14:32:08",
-        "Source IP": "192.168.1.15",
-        "Destination IP": "192.168.1.10",
-        "Classification": "Attack",
-        "Severity": "High",
-    },
-    {
-        "Time": "14:31:42",
-        "Source IP": "192.168.1.22",
-        "Destination IP": "192.168.1.10",
-        "Classification": "Normal",
-        "Severity": "Info",
-    },
-    {
-        "Time": "14:30:19",
-        "Source IP": "10.0.0.8",
-        "Destination IP": "192.168.1.20",
-        "Classification": "Attack",
-        "Severity": "Medium",
-    },
-    {
-        "Time": "14:29:55",
-        "Source IP": "192.168.1.30",
-        "Destination IP": "192.168.1.10",
-        "Classification": "Normal",
-        "Severity": "Info",
-    },
-])
-
-# --------------------------------------------------
 # MODEL PREDICTION WORKSPACE
 # --------------------------------------------------
+# Store the latest prediction results across Streamlit reruns.
+if "prediction_results" not in st.session_state:
+    st.session_state["prediction_results"] = None
+
 st.title("AI-IDS Model Testing")
 st.caption("Upload network records to generate model predictions.")
 
@@ -147,6 +118,7 @@ else:
                     "Attack" if prediction == 1 else "Normal"
                     for prediction in predictions
                 ]
+                st.session_state["prediction_results"] = results
 
                 st.success(
                     f"Successfully classified {len(results):,} records."
@@ -227,124 +199,267 @@ if page == "Overview":
         "not live traffic or actual model predictions."
     )
 
-    # Metric cards
-    col1, col2, col3, col4 = st.columns(4)
+   # Metrics based on actual predictions when available
+    
+    prediction_results = st.session_state.get("prediction_results")
 
-    col1.metric("Flows Analyzed", "1,284", "+84")
-    col2.metric("Attacks Detected", "37", "+5")
-    col3.metric("Normal Traffic", "1,247", "+79")
-    col4.metric("Attack Share", "2.88%", "+0.2%")
+    if prediction_results is not None:
+        total_records = len(prediction_results)
+        total_attacks = int(
+            (prediction_results["Prediction"] == "Attack").sum()
+        )
+        total_normal = int(
+            (prediction_results["Prediction"] == "Normal").sum()
+        )
+        attack_share = (
+            total_attacks / total_records * 100
+            if total_records > 0 else 0
+        )
 
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric("Flows Analyzed", f"{total_records:,}")
+        col2.metric("Attacks Detected", f"{total_attacks:,}")
+        col3.metric("Normal Traffic", f"{total_normal:,}")
+        col4.metric("Attack Share", f"{attack_share:.2f}%")
+
+    else:
+        st.info(
+            "Upload a CSV in the Model Testing section to see actual "
+            "prediction metrics here."
+        )
     st.divider()
 
+    # Charts
+    
     # Charts
     left, right = st.columns(2)
 
     with left:
         st.subheader("Traffic Classification")
 
-        classification_data = pd.DataFrame({
-            "Classification": ["Normal", "Attack"],
-            "Count": [1247, 37],
-        })
+        if prediction_results is not None:
+            classification_data = pd.DataFrame({
+                "Classification": ["Normal", "Attack"],
+                "Count": [total_normal, total_attacks],
+            })
 
-        fig = px.pie(
-            classification_data,
-            names="Classification",
-            values="Count",
-            hole=0.65,
-        )
+            fig = px.pie(
+                classification_data,
+                names="Classification",
+                values="Count",
+                hole=0.65,
+            )
 
-        fig.update_layout(
-            margin=dict(t=20, b=20, l=10, r=10),
-            legend_title_text="Traffic type",
-        )
+            fig.update_layout(
+                margin=dict(t=20, b=20, l=10, r=10),
+                legend_title_text="Traffic type",
+            )
 
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Upload a CSV to display prediction classifications.")
+
+
 
     with right:
         st.subheader("Traffic Activity")
 
-        activity_data = pd.DataFrame({
-            "Time": ["14:00", "14:05", "14:10", "14:15",
-                     "14:20", "14:25", "14:30"],
-            "Normal": [90, 110, 105, 130, 120, 145, 150],
-            "Attack": [3, 5, 2, 8, 4, 7, 6],
-        })
+        if prediction_results is not None:
+            activity_data = pd.DataFrame({
+                "Classification": ["Normal", "Attack"],
+                "Count": [total_normal, total_attacks],
+            })
 
-        fig = px.line(
-            activity_data,
-            x="Time",
-            y=["Normal", "Attack"],
-            markers=True,
-        )
+            fig = px.bar(
+                activity_data,
+                x="Classification",
+                y="Count",
+                color="Classification",
+                title="Predicted classifications in uploaded CSV",
+            )
 
-        fig.update_layout(
-            margin=dict(t=20, b=20, l=10, r=10),
-            xaxis_title="Time",
-            yaxis_title="Illustrative flow count",
-        )
+            fig.update_layout(
+                margin=dict(t=40, b=20, l=10, r=10),
+                xaxis_title="Classification",
+                yaxis_title="Number of records",
+                showlegend=False,
+            )
 
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Upload a CSV to display traffic activity.")
 
     st.divider()
     st.subheader("Recent Detection Records")
-    st.dataframe(demo_alerts, use_container_width=True, hide_index=True)
+
+    if prediction_results is not None:
+        st.dataframe(
+            prediction_results.tail(10),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Upload a CSV to display prediction records.")
 
 # --------------------------------------------------
 # DETECTION ALERTS PAGE
 # --------------------------------------------------
 elif page == "Detection Alerts":
     st.title("Detection Alerts")
-    st.caption("Illustrative records for interface development")
+    prediction_results = st.session_state.get("prediction_results")
 
-    classification_filter = st.selectbox(
-        "Filter by classification",
-        ["All", "Attack", "Normal"],
-    )
+    if prediction_results is not None:
+        classification_filter = st.selectbox(
+            "Filter by classification",
+            ["All", "Attack", "Normal"],
+        )
 
-    if classification_filter == "All":
-        filtered_alerts = demo_alerts
+        if classification_filter == "All":
+            filtered_alerts = prediction_results
+        else:
+            filtered_alerts = prediction_results[
+                prediction_results["Prediction"] == classification_filter
+            ]
+
+        st.metric("Matching records", f"{len(filtered_alerts):,}")
+
+        st.dataframe(
+            filtered_alerts,
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
-        filtered_alerts = demo_alerts[
-            demo_alerts["Classification"] == classification_filter
-        ]
+        st.info("Upload a CSV in Model Testing to see detection results.")
 
-    st.dataframe(
-        filtered_alerts,
-        use_container_width=True,
-        hide_index=True,
-    )
+
 
 # --------------------------------------------------
 # TRAFFIC ANALYSIS PAGE
 # --------------------------------------------------
 elif page == "Traffic Analysis":
     st.title("Traffic Analysis")
-    st.caption("Illustrative traffic statistics")
+    st.caption("Analysis of predictions from the uploaded CSV.")
 
-    st.bar_chart(
-        pd.DataFrame({
-            "Connections": [120, 145, 132, 170, 160, 185],
-        }, index=["14:00", "14:05", "14:10", "14:15", "14:20", "14:25"])
-    )
+    prediction_results = st.session_state.get("prediction_results")
 
-    st.warning("Replace demo values with real flow data when integrated.")
+    if prediction_results is not None:
+        traffic_data = (
+            prediction_results["Prediction"]
+            .value_counts()
+            .reindex(["Normal", "Attack"], fill_value=0)
+            .rename_axis("Classification")
+            .reset_index(name="Count")
+        )
+
+        total_records = len(prediction_results)
+        traffic_data["Percentage"] = (
+            traffic_data["Count"] / total_records * 100
+            if total_records > 0 else 0
+        )
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Records analyzed", f"{total_records:,}")
+        col2.metric(
+            "Predicted attacks",
+            f"{int(traffic_data.loc[traffic_data['Classification'] == 'Attack', 'Count'].iloc[0]):,}",
+        )
+        col3.metric(
+            "Predicted normal",
+            f"{int(traffic_data.loc[traffic_data['Classification'] == 'Normal', 'Count'].iloc[0]):,}",
+        )
+
+        st.subheader("Classification Distribution")
+
+        fig = px.bar(
+            traffic_data,
+            x="Classification",
+            y="Count",
+            color="Classification",
+            title="Predicted normal vs. attack records",
+        )
+        fig.update_layout(
+            xaxis_title="Predicted class",
+            yaxis_title="Number of records",
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Prediction Summary")
+        st.dataframe(
+            traffic_data,
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Upload a CSV in Model Testing to view traffic analysis.")
+
+
 
 # --------------------------------------------------
 # MODEL INFORMATION PAGE
 # --------------------------------------------------
 elif page == "Model Information":
     st.title("Model Information")
+    st.caption(
+        "Details about the trained machine-learning model "
+        "used to classify network records."
+    )
 
+    model_path = BASE_DIR / "models" / "intrusion_detection_model.joblib"
+    preprocessor_path = BASE_DIR / "models" / "preprocessor.joblib"
+
+    model_exists = model_path.exists()
+    preprocessor_exists = preprocessor_path.exists()
+
+    # Model status
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Trained Model",
+            "Available" if model_exists else "Missing",
+        )
+
+    with col2:
+        st.metric(
+            "Preprocessor",
+            "Available" if preprocessor_exists else "Missing",
+        )
+
+    st.divider()
+
+    # Model details
+    st.subheader("Model Details")
+
+    st.write("**Algorithm:** Class-weighted Random Forest")
     st.write("**Dataset:** NSL-KDD")
-    st.write("**Baseline algorithm:** Random Forest")
-    st.write("**Task:** Binary classification")
-    st.write("**Class 0:** Normal traffic")
-    st.write("**Class 1:** Attack traffic")
-    st.write("**Integration status:** Not connected")
+    st.write("**Input features:** 41 network traffic features")
+    st.write("**Task:** Binary classification — Normal or Attack")
+    st.write("**Prediction mode:** Uploaded CSV files")
 
     st.info(
-        "The trained model will be connected after we verify "
-        "the saved model and preprocessing artifacts."
+        "This dashboard analyzes records from uploaded datasets. "
+        "It does not currently monitor live network traffic."
     )
+
+    st.divider()
+
+    # Evaluation information
+    st.subheader("Model Evaluation")
+
+    st.write(
+        "The model was evaluated using a held-out NSL-KDD test set. "
+        "Its results show that some attacks can be missed."
+    )
+
+    st.warning(
+        "Do not treat this model as a production-ready security system. "
+        "Review its evaluation metrics and false negatives before relying "
+        "on its predictions."
+    )
+
+    st.caption(
+        "Model files are stored in the project's models/ directory."
+    )
+
